@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { useOpenCV } from './hooks/useOpenCV'
 import { detectCorners } from './utils/detectCorners'
 import { flatten } from './utils/flatten'
+import { CameraCapture } from './components/CameraCapture'
 
 // 앱 단계 상수
 const STEP = {
-  PICK: 'pick',         // 1단계: 사진 선택/촬영
+  PICK: 'pick',         // 1단계: 입력 방식 선택 (카메라/파일)
+  CAMERA: 'camera',     // 1-b단계: 라이브 카메라 촬영
   ADJUST: 'adjust',     // 2단계: 꼭짓점 조정
   RESULT: 'result',     // 3단계: 평면화 결과
 }
@@ -20,10 +22,10 @@ export default function App() {
   const fileInputRef = useRef(null)
   const resultCanvasRef = useRef(null)
 
-  // 사진 파일을 받아 Image 객체로 로드
-  const handleFile = (file) => {
-    if (!file) return
-    const url = URL.createObjectURL(file)
+  // 사진(File 또는 Blob)을 받아 Image 객체로 로드
+  const handleFile = (fileOrBlob) => {
+    if (!fileOrBlob) return
+    const url = URL.createObjectURL(fileOrBlob)
     setImageUrl(url)
     const img = new Image()
     img.onload = () => {
@@ -97,12 +99,21 @@ export default function App() {
         </span>
       </header>
 
-      {/* 1단계: 사진 선택/촬영 */}
+      {/* 1단계: 입력 방식 선택 */}
       {step === STEP.PICK && (
         <PickStep
           onFile={handleFile}
+          onCameraOpen={() => setStep(STEP.CAMERA)}
           fileInputRef={fileInputRef}
           cvReady={cvReady}
+        />
+      )}
+
+      {/* 1-b단계: 라이브 카메라 */}
+      {step === STEP.CAMERA && (
+        <CameraCapture
+          onCapture={(blob) => handleFile(blob)}
+          onCancel={() => setStep(STEP.PICK)}
         />
       )}
 
@@ -131,34 +142,42 @@ export default function App() {
 }
 
 /* ─────────────────────────────────────────────
- * 1단계: 사진 선택/촬영
- * 모바일에서는 input capture 속성으로 카메라 직접 호출
+ * 1단계: 입력 방식 선택
+ * - 카메라 버튼: 라이브 카메라(getUserMedia) — 모바일/데스크탑 모두 지원
+ * - 파일 버튼: 갤러리/파일 선택 (capture 속성 없음)
  * ───────────────────────────────────────────── */
-function PickStep({ onFile, fileInputRef, cvReady }) {
+function PickStep({ onFile, onCameraOpen, fileInputRef, cvReady }) {
   return (
     <section className="rounded-2xl border border-slate-700 bg-slate-900/40 p-6 text-center">
       <p className="mb-4 text-slate-300">
-        스마트폰 카메라로 악보를 촬영하거나, 이미 찍은 사진을 업로드하세요.
+        카메라로 직접 촬영하거나, 이미 가지고 있는 사진을 선택하세요.
       </p>
 
-      {/* 후면 카메라 직접 호출 */}
+      {/* 파일 선택용 input (모바일에선 갤러리에서 고를 수 있음) */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={(e) => onFile(e.target.files?.[0])}
       />
 
-      <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={onCameraOpen}
+          disabled={!cvReady}
+          className="rounded-xl bg-indigo-500 px-5 py-3 font-medium text-white shadow hover:bg-indigo-400 disabled:opacity-50"
+        >
+          📷 카메라로 촬영
+        </button>
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={!cvReady}
-          className="w-full rounded-xl bg-indigo-500 px-5 py-3 font-medium text-white shadow hover:bg-indigo-400 disabled:opacity-50 sm:w-auto"
+          className="rounded-xl border border-slate-600 bg-slate-800/60 px-5 py-3 font-medium text-slate-100 hover:bg-slate-700 disabled:opacity-50"
         >
-          📷 촬영하기 / 사진 선택
+          🖼️ 파일/갤러리에서 선택
         </button>
       </div>
 

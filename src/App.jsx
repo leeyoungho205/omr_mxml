@@ -20,7 +20,6 @@ export default function App() {
   const [corners, setCorners] = useState(null)
 
   const fileInputRef = useRef(null)
-  const resultCanvasRef = useRef(null)
 
   // 사진(File 또는 Blob)을 받아 Image 객체로 로드
   const handleFile = (fileOrBlob) => {
@@ -30,46 +29,42 @@ export default function App() {
     const img = new Image()
     img.onload = () => {
       setImageEl(img)
+      setCorners(null) // 새 이미지마다 꼭짓점 재검출
       setStep(STEP.ADJUST)
+    }
+    img.onerror = () => {
+      console.error('이미지 로딩 실패')
+      alert('이미지를 불러올 수 없습니다. 다른 사진을 시도해보세요.')
     }
     img.src = url
   }
 
   // 단계 진입 시 자동 꼭짓점 검출
   useEffect(() => {
-    if (step === STEP.ADJUST && imageEl && cvReady) {
+    if (step === STEP.ADJUST && imageEl && cvReady && !corners) {
       try {
         const c = detectCorners(imageEl)
         setCorners(c)
       } catch (e) {
         console.error('꼭짓점 검출 실패', e)
+        // 검출에 실패해도 수동 조정이 가능하도록 80% 사각형 폴백
+        const w = imageEl.naturalWidth || imageEl.width
+        const h = imageEl.naturalHeight || imageEl.height
+        const m = 0.1
+        setCorners([
+          { x: w * m, y: h * m },
+          { x: w * (1 - m), y: h * m },
+          { x: w * (1 - m), y: h * (1 - m) },
+          { x: w * m, y: h * (1 - m) },
+        ])
       }
     }
-  }, [step, imageEl, cvReady])
+  }, [step, imageEl, cvReady, corners])
 
-  // 평면화 실행
+  // 평면화 단계로 전환 (실제 변환은 ResultStep이 mount 직후 useEffect로 수행)
   const handleFlatten = () => {
-    if (!imageEl || !corners || !resultCanvasRef.current) return
-    flatten(imageEl, corners, resultCanvasRef.current)
+    if (!imageEl || !corners) return
     setStep(STEP.RESULT)
-  }
-
-  // JPG 다운로드
-  const handleDownload = () => {
-    const canvas = resultCanvasRef.current
-    if (!canvas) return
-    canvas.toBlob(
-      (blob) => {
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `score_${Date.now()}.jpg`
-        a.click()
-        URL.revokeObjectURL(url)
-      },
-      'image/jpeg',
-      0.92,
-    )
   }
 
   // 처음으로 돌아가기
@@ -129,10 +124,10 @@ export default function App() {
       )}
 
       {/* 3단계: 결과 */}
-      {step === STEP.RESULT && (
+      {step === STEP.RESULT && imageEl && corners && (
         <ResultStep
-          resultCanvasRef={resultCanvasRef}
-          onDownload={handleDownload}
+          imageEl={imageEl}
+          corners={corners}
           onReset={handleReset}
           onReadjust={() => setStep(STEP.ADJUST)}
         />
@@ -317,15 +312,55 @@ function AdjustStep({ imageEl, corners, setCorners, onFlatten, onReset }) {
 
 /* ─────────────────────────────────────────────
  * 3단계: 결과
+ * - 자체 canvas ref를 갖고, mount 직후 useEffect에서 flatten() 실행
+ *   (이전 버그: 상위에서 ref를 만들면 canvas가 아직 렌더 전이라 ref.current=null)
  * ───────────────────────────────────────────── */
-function ResultStep({ resultCanvasRef, onDownload, onReset, onReadjust }) {
+function ResultStep({ imageEl, corners, onReset, onReadjust }) {
+  const canvasRef = useRef(null)
+  const [err, setErr] = useState(null)
+
+  // mount 시점에 평면화 실행
+  useEffect(() => {
+    if (!canvasRef.current || !imageEl || !corners) return
+    try {
+      flatten(imageEl, corners, canvasRef.current)
+    } catch (e) {
+      console.error('평면화 실패', e)
+      setErr(e?.message || String(e))
+    }
+  }, [imageEl, corners])
+
+  // JPG 다운로드 (canvas.toBlob)
+  const handleDownload = () => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `score_${Date.now()}.jpg`
+        a.click()
+        URL.revokeObjectURL(url)
+      },
+      'image/jpeg',
+      0.92,
+    )
+  }
+
   return (
     <section className="space-y-4">
       <p className="text-sm text-slate-300">
         평면화된 악보 이미지입니다. 마음에 들면 JPG로 저장하세요.
       </p>
+      {err && (
+        <p className="rounded-lg bg-rose-950/50 px-3 py-2 text-sm text-rose-200">
+          평면화 중 오류: {err}
+        </p>
+      )}
       <div className="rounded-xl bg-white p-2">
-        <canvas ref={resultCanvasRef} className="block h-auto w-full" />
+        <canvas ref={canvasRef} className="block h-auto w-full" />
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <button
@@ -344,7 +379,7 @@ function ResultStep({ resultCanvasRef, onDownload, onReset, onReadjust }) {
         </button>
         <button
           type="button"
-          onClick={onDownload}
+          onClick={handleDownload}
           className="rounded-xl bg-indigo-500 px-4 py-3 font-medium text-white hover:bg-indigo-400"
         >
           💾 JPG 다운로드

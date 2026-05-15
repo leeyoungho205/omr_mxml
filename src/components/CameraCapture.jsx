@@ -107,10 +107,18 @@ export function CameraCapture({ onCapture, onCancel }) {
 
   return (
     <section className="space-y-3">
-      <div className="relative w-full overflow-hidden rounded-xl bg-black">
+      {/*
+        세로 모바일에서 비디오가 너무 길어 촬영 버튼이 화면 밖으로 밀리던 문제 수정.
+        - 컨테이너 높이를 viewport에 비례해 제한 (calc로 헤더/버튼 여유 확보)
+        - 비디오는 object-contain으로 비율 유지하며 컨테이너에 맞춤
+      */}
+      <div
+        className="relative w-full overflow-hidden rounded-xl bg-black"
+        style={{ height: 'min(70vh, calc(100svh - 220px))' }}
+      >
         <video
           ref={videoRef}
-          className="block h-auto w-full"
+          className="block h-full w-full object-contain"
           playsInline
           muted
           autoPlay
@@ -147,7 +155,7 @@ export function CameraCapture({ onCapture, onCancel }) {
           🔄 전/후면
         </button>
       </div>
-      <p className="text-xs text-slate-400">
+      <p className="text-center text-xs text-slate-400">
         지금 카메라: {facing === 'environment' ? '후면(권장)' : '전면'}
       </p>
     </section>
